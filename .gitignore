@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Environment
+.env*
+
+# Data (raw datasets, processed outputs, batch state)
+data/
+*.csv
+
+# Next.js
+.next/
+out/
+
+# Build output
+dist/
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
