@@ -4,6 +4,11 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* ── Font families ───────────────────────────────────────────────────────── */
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+
+  /* ── shadcn/Slate tokens (unchanged) ─────────────────────────────────────── */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -31,6 +36,16 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* ── Editorial palette (declared last so they win over shadcn tokens) ────── */
+  --color-paper: oklch(0.985 0.005 85);         /* warm off-white */
+  --color-paper-deep: oklch(0.955 0.008 85);    /* slightly darker cream for surfaces */
+  --color-ink: oklch(0.22 0.015 60);            /* warm dark gray */
+  --color-ink-muted: oklch(0.42 0.012 60);      /* secondary text */
+  --color-ink-faint: oklch(0.65 0.010 60);      /* tertiary text, captions */
+  --color-rule: oklch(0.88 0.008 60);           /* divider lines */
+  --color-accent: oklch(0.45 0.08 45);          /* muted amber/rust — overrides shadcn accent */
+  --color-accent-soft: oklch(0.93 0.025 45);    /* accent background tint */
 }
 
 /* Slate base color theme */
@@ -92,6 +107,10 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv02', 'cv11'; /* Inter stylistic tweaks */
+    -webkit-font-smoothing: antialiased;
   }
 }
