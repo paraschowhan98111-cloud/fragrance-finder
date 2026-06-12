@@ -7,16 +7,12 @@
  * Consumers iterate with `for await (const event of streamRankCandidates(...))`.
  */
 
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
 import { parse as parsePartial } from 'partial-json';
 import { anthropic, RANKER_MODEL } from './anthropic.ts';
 import { RECOMMENDATION_SYSTEM_PROMPT, PROMPT_VERSION } from './prompts/recommendation.ts';
 import { buildUserMessage, PickSchema, ResultSchema } from './ranker.ts';
 import { logRecommendationSession } from './logging.ts';
 import type { RankerInput, Candidate } from './types.ts';
-
-const DEBUG_DUMP = process.env.RANKER_DEBUG_DUMP === '1';
 
 // ── Event types ───────────────────────────────────────────────────────────────
 
@@ -272,28 +268,6 @@ const validation = ResultSchema.safeParse(final);
   }
 
   const latency_ms = Date.now() - t0;
-
-  // ── 4.9. Debug dump ───────────────────────────────────────────────────────────
-  if (DEBUG_DUMP) {
-    try {
-      await mkdir(join(process.cwd(), 'data/processed/debug'), { recursive: true });
-      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      const anchorLabel = (input.anchor.source_text ?? 'no-anchor').replace(/[^a-z0-9]+/gi, '-').slice(0, 40);
-      const path = join(process.cwd(), 'data/processed/debug', `${ts}_${anchorLabel}.json`);
-      await writeFile(path, JSON.stringify({
-        prefs: input.prefs,
-        anchor: input.anchor,
-        candidates_summary: input.candidates.map(c => ({ id: c.id, brand: c.brand, name: c.name, fit_score: c.fit_score })),
-        raw_accumulated_text: accumulated,
-        sealed_pick_count: sealedPickCount,
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-      }, null, 2));
-      console.log(`[debug] dumped raw response to ${path}`);
-    } catch (err) {
-      console.error('[debug] failed to dump:', err);
-    }
-  }
 
   // ── 5. done ──────────────────────────────────────────────────────────────────
   yield {

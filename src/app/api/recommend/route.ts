@@ -4,11 +4,11 @@
  * Accepts a JSON body of user preferences, runs the retrieval pipeline +
  * streaming LLM ranker, and returns an SSE stream of RankerEvents.
  *
- * Runtime: Node.js (required for Supabase, OpenAI, Anthropic SDK).
+ * Runtime: Edge (avoids Vercel Hobby's 10 s serverless timeout for long SSE streams).
  * Streaming: ReadableStream with SSE framing.
  */
 
-export const runtime = 'nodejs';
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 import { z } from 'zod';
