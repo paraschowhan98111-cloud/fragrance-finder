@@ -26,6 +26,14 @@ const NEUTRAL_ANCHOR_TEXT = 'well-regarded versatile fragrance';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
+function describeEmbedding(emb: unknown): string {
+  if (emb === null) return 'null';
+  if (emb === undefined) return 'undefined';
+  if (Array.isArray(emb)) return `array[${emb.length}], first=${emb[0]}, last=${emb[emb.length - 1]}`;
+  if (typeof emb === 'string') return `string[${(emb as string).length}], preview=${(emb as string).slice(0, 50)}`;
+  return `unknown type: ${typeof emb}`;
+}
+
 /**
  * Safely parse a pgvector value returned by Supabase.
  * Newer client versions return a JS number[]; older ones may return a JSON
@@ -68,34 +76,48 @@ export async function resolveAnchor(text: string): Promise<AnchorResolution> {
   const t0 = performance.now();
   const trimmed = (text ?? '').trim();
 
+  console.log('[debug] resolveAnchor start, trimmed:', JSON.stringify(trimmed));
+
   if (!trimmed) {
+    console.log('[debug] resolveAnchor: empty anchor, returning none');
     return { type: 'none', scent_embedding: null, brand_embedding: null };
   }
 
   // Call the search_anchor RPC
+  console.log('[debug] resolveAnchor: about to call search_anchor RPC');
   const tRpc = performance.now();
-  const { data, error } = await supabase.rpc('search_anchor', {
-    query_text: trimmed,
-    match_count: 1,
-  });
+  let data: unknown, error: unknown;
+  try {
+    ({ data, error } = await supabase.rpc('search_anchor', {
+      query_text: trimmed,
+      match_count: 1,
+    }));
+    console.log('[debug] resolveAnchor: search_anchor RPC returned, error:', error ? JSON.stringify(error) : 'null', 'rows:', Array.isArray(data) ? data.length : 'non-array');
+  } catch (err) {
+    console.error('[debug] resolveAnchor: search_anchor RPC THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
   const rpcMs = performance.now() - tRpc;
 
   if (error) {
-    console.error('[anchor] search_anchor RPC failed:', error.message);
+    console.error('[anchor] search_anchor RPC failed:', (error as { message?: string }).message ?? String(error));
     // Fall through to free_text as a fallback
   }
 
-  const top = data && data.length > 0 ? data[0] : null;
+  const top = (Array.isArray(data) && data.length > 0) ? data[0] : null;
 
   // Threshold: 0.35 trigram similarity is the cutoff for "good enough catalog match"
   // Below that we treat as free text. (Empirically: 'bleu de chanel' → 1.0,
   //  'aqua di gio' → 0.54, garbage → < 0.2 so the function returns no rows.)
   const CATALOG_MATCH_THRESHOLD = 0.35;
 
+  console.log('[debug] resolveAnchor: top match:', top ? JSON.stringify({ id: top.id, similarity: top.similarity, has_embedding: !!top.embedding }) : 'null');
+
   if (top && top.similarity >= CATALOG_MATCH_THRESHOLD && top.embedding) {
     console.log(
       `[timing] resolveAnchor: rpc=${rpcMs.toFixed(0)}ms text_embed=0ms total=${(performance.now() - t0).toFixed(0)}ms`,
     );
+    console.log('[debug] resolveAnchor: returning catalog_match');
     return {
       type: 'catalog_match',
       matched_fragrance: {
@@ -112,12 +134,21 @@ export async function resolveAnchor(text: string): Promise<AnchorResolution> {
   }
 
   // Free-text path: embed the user's text on the fly
+  console.log('[debug] resolveAnchor: falling through to free_text embed');
   const tEmbed = performance.now();
-  const embedding = await embedText(trimmed);
+  let embedding: number[];
+  try {
+    embedding = await embedText(trimmed);
+    console.log('[debug] resolveAnchor: embedText returned, dims:', embedding.length);
+  } catch (err) {
+    console.error('[debug] resolveAnchor: embedText THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
   const embedMs = performance.now() - tEmbed;
   console.log(
     `[timing] resolveAnchor: rpc=${rpcMs.toFixed(0)}ms text_embed=${embedMs.toFixed(0)}ms total=${(performance.now() - t0).toFixed(0)}ms`,
   );
+  console.log('[debug] resolveAnchor: returning free_text');
   return {
     type: 'free_text',
     scent_embedding: embedding,
@@ -142,32 +173,51 @@ export async function getCandidates(
 ): Promise<Candidate[]> {
   const t0 = performance.now();
 
+  console.log('[debug] getCandidates start, anchor.type:', anchor.type);
+
   // For type:'none' the scent_embedding is null — embed a neutral phrase
   let scentEmbedding = anchor.scent_embedding;
   let neutralEmbedMs = 0;
   if (!scentEmbedding) {
+    console.log('[debug] getCandidates: no scent embedding, embedding neutral phrase');
     const tEmbed = performance.now();
-    scentEmbedding = await embedText(NEUTRAL_ANCHOR_TEXT);
+    try {
+      scentEmbedding = await embedText(NEUTRAL_ANCHOR_TEXT);
+      console.log('[debug] getCandidates: neutral embed returned, dims:', scentEmbedding.length);
+    } catch (err) {
+      console.error('[debug] getCandidates: neutral embedText THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+      throw err;
+    }
     neutralEmbedMs = performance.now() - tEmbed;
   }
 
+  console.log('[debug] getCandidates: about to call match_fragrances RPC');
+  console.log('[debug] getCandidates: scent_embedding =', describeEmbedding(scentEmbedding));
+  console.log('[debug] getCandidates: brand_embedding =', describeEmbedding(anchor.brand_embedding));
   const tRpc = performance.now();
-  const { data, error } = await supabase.rpc('match_fragrances', {
-    query_scent_embedding: scentEmbedding,
-    query_brand_embedding: anchor.brand_embedding,   // null → RPC uses scent only
-    user_gender: prefs.gender,
-    user_max_price_tier: prefs.budget_tier,
-    user_dealbreakers: prefs.dealbreakers ?? [],
-    user_occasion: prefs.occasion,
-    match_count: 30,
-  });
+  let data: unknown, error: unknown;
+  try {
+    ({ data, error } = await supabase.rpc('match_fragrances', {
+      query_scent_embedding: scentEmbedding,
+      query_brand_embedding: anchor.brand_embedding,   // null → RPC uses scent only
+      user_gender: prefs.gender,
+      user_max_price_tier: prefs.budget_tier,
+      user_dealbreakers: prefs.dealbreakers ?? [],
+      user_occasion: prefs.occasion,
+      match_count: 30,
+    }));
+    console.log('[debug] getCandidates: match_fragrances RPC returned, error:', error ? JSON.stringify(error) : 'null', 'rows:', Array.isArray(data) ? data.length : 'non-array');
+  } catch (err) {
+    console.error('[debug] getCandidates: match_fragrances RPC THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
   const rpcMs = performance.now() - tRpc;
   console.log(
     `[timing] getCandidates:${neutralEmbedMs > 0 ? ` neutral_embed=${neutralEmbedMs.toFixed(0)}ms` : ''}` +
     ` rpc=${rpcMs.toFixed(0)}ms total=${(performance.now() - t0).toFixed(0)}ms`,
   );
 
-  if (error) throw new Error(`match_fragrances RPC failed: ${error.message}`);
+  if (error) throw new Error(`match_fragrances RPC failed: ${(error as { message?: string }).message ?? String(error)}`);
 
   return (data ?? []) as Candidate[];
 }
@@ -240,18 +290,60 @@ export async function getRecommendationCandidates(
 ): Promise<{ candidates: Candidate[]; anchor: AnchorResolution }> {
   const t0 = performance.now();
 
-  const anchor = await resolveAnchor(prefs.anchor ?? '');
-  const candidates = await getCandidates(prefs, anchor);
+  console.log('[debug] orchestrator start, prefs:', JSON.stringify(prefs));
 
+  console.log('[debug] about to call resolveAnchor');
+  let anchor: AnchorResolution;
+  try {
+    anchor = await resolveAnchor(prefs.anchor ?? '');
+    console.log('[debug] resolveAnchor returned:', JSON.stringify({
+      type: anchor.type,
+      has_scent_embedding: anchor.scent_embedding !== null && anchor.scent_embedding !== undefined,
+      has_brand_embedding: anchor.brand_embedding !== null && anchor.brand_embedding !== undefined,
+    }));
+  } catch (err) {
+    console.error('[debug] resolveAnchor THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
+
+  console.log('[debug] about to call getCandidates');
+  let candidates: Candidate[];
+  try {
+    candidates = await getCandidates(prefs, anchor);
+    console.log('[debug] getCandidates returned, count:', candidates.length);
+  } catch (err) {
+    console.error('[debug] getCandidates THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
+
+  console.log('[debug] about to call filterAnchorVariants');
   const tFilter = performance.now();
-  const filtered = filterAnchorVariants(candidates, anchor);
+  let filtered: Candidate[];
+  try {
+    filtered = filterAnchorVariants(candidates, anchor);
+    console.log('[debug] filterAnchorVariants returned, count:', filtered.length);
+  } catch (err) {
+    console.error('[debug] filterAnchorVariants THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
   console.log(`[timing] filterAnchorVariants: ${(performance.now() - tFilter).toFixed(0)}ms`);
 
+  console.log('[debug] about to call applyBrandCap');
   const tBrand = performance.now();
-  const diverse = applyBrandCap(filtered, 2);
+  let diverse: Candidate[];
+  try {
+    diverse = applyBrandCap(filtered, 2);
+    console.log('[debug] applyBrandCap returned, count:', diverse.length);
+  } catch (err) {
+    console.error('[debug] applyBrandCap THREW:', err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : '');
+    throw err;
+  }
   console.log(`[timing] applyBrandCap: ${(performance.now() - tBrand).toFixed(0)}ms`);
 
   console.log(`[timing] getRecommendationCandidates total: ${(performance.now() - t0).toFixed(0)}ms`);
 
-  return { candidates: diverse.slice(0, 20), anchor };
+  const result = diverse.slice(0, 20);
+  console.log('[debug] orchestrator returning, final candidate count:', result.length);
+
+  return { candidates: result, anchor };
 }
