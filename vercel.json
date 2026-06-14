@@ -4,5 +4,11 @@
     "src/app/api/recommend/route.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/keepalive",
+      "schedule": "0 12 */3 * *"
+    }
+  ]
 }
