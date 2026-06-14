@@ -3,10 +3,31 @@ import { Heading } from '@/components/editorial/Heading';
 import { Body } from '@/components/editorial/Body';
 
 interface ResultsErrorProps {
+  kind?: 'generic' | 'rate_limited';
   message?: string;
 }
 
-export function ResultsError({ message }: ResultsErrorProps) {
+export function ResultsError({ kind = 'generic', message }: ResultsErrorProps) {
+  if (kind === 'rate_limited') {
+    return (
+      <div className="py-32">
+        <Heading level={2} className="mb-6">
+          You&apos;re moving fast.
+        </Heading>
+        <Body size="lg" tone="muted" className="mb-8 max-w-xl">
+          We&apos;ve capped requests at ten per hour to keep this affordable for everyone. Take a
+          break and come back in a bit — your last results are still saved.
+        </Body>
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 text-sm tracking-[0.15em] uppercase text-[var(--color-ink)] border-b border-[var(--color-ink)] pb-1 hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors"
+        >
+          Back to home
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="py-32">
       <Heading level={2} className="mb-6">

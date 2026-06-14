@@ -9,7 +9,7 @@ import { PickCard } from './PickCard';
 import { ExplanationBlock } from './ExplanationBlock';
 import { ResultsError } from './ResultsError';
 import { loadPrefs, loadResults, saveResults } from '@/lib/quiz-storage';
-import { consumeSSE } from '@/lib/sse-client';
+import { consumeSSE, SSEError } from '@/lib/sse-client';
 import type { Candidate, RecommendationPick, UserPreferences } from '@/lib/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ export function ResultsView({ hash }: ResultsViewProps) {
   const [explanation, setExplanation] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('loading-prefs');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<'generic' | 'rate_limited'>('generic');
 
   // Prevents double-streaming under React Strict Mode's double-effect invocation
   const startedRef = useRef(false);
@@ -120,7 +121,12 @@ export function ResultsView({ hash }: ResultsViewProps) {
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
-        setErrorMessage((err as Error).message);
+        if (err instanceof SSEError && err.status === 429) {
+          setErrorKind('rate_limited');
+        } else {
+          setErrorKind('generic');
+          setErrorMessage((err as Error).message);
+        }
         setPhase('error');
       }
     })();
@@ -161,7 +167,7 @@ export function ResultsView({ hash }: ResultsViewProps) {
     return (
       <main className="min-h-screen flex flex-col justify-center py-24">
         <Container size="default">
-          <ResultsError message={errorMessage ?? undefined} />
+          <ResultsError kind={errorKind} message={errorMessage ?? undefined} />
         </Container>
       </main>
     );

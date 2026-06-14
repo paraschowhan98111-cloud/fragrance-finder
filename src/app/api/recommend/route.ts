@@ -16,6 +16,7 @@ import { NextRequest } from 'next/server';
 import { getRecommendationCandidates } from '@/lib/recommender';
 import { streamRankCandidates } from '@/lib/streamingRanker';
 import type { RankerEvent } from '@/lib/streamingRanker';
+import { checkRateLimit } from '@/lib/ratelimit';
 
 // ── Request validation ────────────────────────────────────────────────────────
 
@@ -43,6 +44,33 @@ function sseFrame(event: RankerEvent): string {
 
 export async function POST(req: NextRequest): Promise<Response> {
   const t0 = performance.now();
+
+  // 0. Rate limit check
+  const forwardedFor = req.headers.get('x-forwarded-for');
+  const realIp = req.headers.get('x-real-ip');
+  const ip = forwardedFor?.split(',')[0]?.trim() || realIp || 'unknown';
+
+  const rl = await checkRateLimit(ip);
+  if (!rl.success) {
+    const retryAfter = Math.max(1, Math.ceil((rl.reset - Date.now()) / 1000));
+    return new Response(
+      JSON.stringify({
+        error: 'rate_limited',
+        message: 'Too many requests. Try again in a few minutes.',
+        retry_after_seconds: retryAfter,
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-RateLimit-Limit': String(rl.limit),
+          'X-RateLimit-Remaining': String(rl.remaining),
+          'X-RateLimit-Reset': String(rl.reset),
+          'Retry-After': String(retryAfter),
+        },
+      },
+    );
+  }
 
   // 1. Parse + validate body
   const tParse = performance.now();

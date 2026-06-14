@@ -1,3 +1,10 @@
+export class SSEError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = 'SSEError';
+  }
+}
+
 export interface SSEEvent {
   event: string;
   data: unknown;
@@ -16,7 +23,7 @@ export async function* consumeSSE(
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+    throw new SSEError(response.status, `Request failed: ${response.status} ${response.statusText}`);
   }
 
   if (!response.body) {
